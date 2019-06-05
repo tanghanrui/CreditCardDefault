@@ -1,0 +1,275 @@
+---
+title: "Predict Credit Card Payment Default"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+##Setup
+```{r}
+# load libraries
+library(tidyverse)
+library(GGally)
+library(caret)
+library(cowplot)
+library(rpart.plot)
+library(Rborist) # is a high performance implementation of randomForest
+
+# set seed to make sure that I get identical result each time running the code
+set.seed(1234)
+
+```
+
+
+
+```{r}
+# read the credit card dataset
+setwd("/Users/hanrui/Desktop/Data Analyst/UW Data Analytics Certificate/Data Mining and Predictive Analytics/datasets")
+dd = read.delim("credit_card_default.tsv", header = TRUE, sep = "\t")
+```
+
+After the exploratory analysis, we get an overview of the dataset. Among the 30,000 credit card holders, about 3/5 of them are female, 1/6 of the total card holders will default next month (October). The average age of credit card holders is about 35, very few of them over age 60. We can see from the ggpair martix that female are slightly less likely to default on their card payments than male. Different from the overall credit card holder distribution, the distribution of defaultors is relatively average. Nondefaltors tend to have higher credit limits. After observing the possible correlations from ggpair matrix graph, let's get a closer look at these features sex, marriage, bill amount in sep, and credit limit
+```{r}
+# exploratory data analysis
+# take a high-level view of the dataset
+# there are 30000 observations and 24 variables
+summary(dd)
+glimpse(dd)
+str(dd)
+
+# get summary of the missing value in the datasets
+colSums(is.na(dd)) # there are no missing values 
+
+# convert categorical variables into factors
+dd = dd %>% mutate(default_next_month = as.factor(default_next_month),
+                   sex = as.factor(sex),
+                   education = as.factor(education),
+                   marriage = as.factor(marriage), 
+                   pay_sept = as.factor(pay_sept),
+                   pay_aug = as.factor(pay_aug),
+                   pay_july = as.factor(pay_july),
+                   pay_june = as.factor(pay_june),
+                   pay_may = as.factor(pay_may),
+                   pay_april = as.factor(pay_april))
+
+# rename the value of categorical variables
+# default_next_month
+levels(dd$default_next_month)[levels(dd$default_next_month)==0] = "No"
+levels(dd$default_next_month)[levels(dd$default_next_month)==1] = "Yes"
+
+# education
+levels(dd$education)[levels(dd$education)==1] = "Grad"
+levels(dd$education)[levels(dd$education)==2] = "BA"
+levels(dd$education)[levels(dd$education)==3] = "HS"
+levels(dd$education)[levels(dd$education)==4] = "Other"
+
+# sex
+levels(dd$sex)[levels(dd$sex)==1] = "Male"
+levels(dd$sex)[levels(dd$sex)==2] = "Female"
+
+# marriage
+levels(dd$marriage)[levels(dd$marriage)==1] = "Married"
+levels(dd$marriage)[levels(dd$marriage)==2] = "Single"
+levels(dd$marriage)[levels(dd$marriage)==3] = "Divorced"
+levels(dd$marriage)[levels(dd$marriage)==0] = "Other"
+
+# use lapply to draw the distribution of all category variables, including our outcome variable: 
+dd1 = dd %>% select(default_next_month, education, sex, marriage)
+
+p = lapply(names(dd1), function(a){
+   ggplot(dd, aes_string(x = a)) + geom_bar() 
+})
+
+# display the all the 4 bar charts
+cowplot::plot_grid(plotlist = p)
+
+# display bill and payment distributions
+dd2 = dd %>% select()
+p1 = lapply(names(dd2), function(a){
+   ggplot(dd, aes_string(x = a)) + geom_histogram() 
+})
+  
+# plot the age distribution
+ggplot(dd, aes(x = age)) + geom_histogram() + 
+                           geom_vline(xintercept = mean(dd$age), color = "red")
+
+# explore possible variable corelation
+ggpairs(select(dd, education, sex, age, marriage, default_next_month)) 
+
+ggpairs(select(dd, bill_sept, pay_amt_sept, limit_bal, default_next_month))
+
+# I noticed possible relationship between defaultor, sex, bill amount in sep, credit limit, let's take a closer look
+
+```
+
+Take a closer look at possible relationship between defaultor, sex, bill amount in sep, and credit limit
+```{r}
+# plot the relationship between default and credit limit
+ggplot(dd, aes(x = default_next_month, y = limit_bal)) +
+                  geom_boxplot(aes(fill = default_next_month)) # Cardholders with high credit limit have lower chance of default
+
+# plot the relationship between default and sex
+ggplot(dd, aes(x = default_next_month)) +
+                  geom_bar(aes(fill = default_next_month)) +
+                  facet_wrap(~ sex)                           # Men have higher risk of default than women
+
+# plot the relationship between default and marriage status
+ggplot(dd, aes(x = default_next_month)) +
+                  geom_bar(aes(fill = default_next_month)) +
+                  facet_wrap(~ marriage)                       # People who married have higher chance of default than those are single
+
+# plot the relationship between default and bill amount in sep
+ggplot(dd, aes(x = default_next_month, y = bill_sept)) + 
+           geom_boxplot(aes(fill = default_next_month))       # defaulters tend to have a slightly lower bill amount in September
+```
+
+Construct one new feature to include in model development. 
+```{r}
+# feature engineering
+# made hypothesis that the card holders' payment history will affect whether they will default in the future
+# introduce a new variable: fullpmt_per: count the number of month with full payment/6 months
+dd1 = dd[7:12]
+dd$fullpmt_per = rowSums(dd1 == -1)/6
+
+# plot the relationship between fullpmt_per and default_next_month
+ggplot(dd, aes(x = fullpmt_per, fill = default_next_month)) + 
+            geom_bar() + 
+            facet_wrap(~default_next_month)
+```
+
+Use the createDataPartition function from the caret package to split the data into a training and testing set.
+```{r}
+# splict 80% of the data into a training set
+in_train = createDataPartition(y = dd$default_next_month, p =0.8, list = FALSE)
+dd_train = dd[in_train, ]
+dd_test = dd[-in_train, ]
+
+# preprocess the training data
+nearZeroVar(dd, saveMetrics = TRUE) # no near zero variables to remove
+
+dd_preprocess = preProcess(dd_train, method = "center")
+
+# use prediction to apply them to the dataset
+dd_train_proc = predict(dd_preprocess, dd_train)
+dd_test_proc = predict(dd_preprocess, dd_test)
+
+```
+
+Fit 3 logistic regression models.
+```{r}
+# full model
+full_model = train(default_next_month~., data = dd_train, method = "glm", family = binomial)
+summary(full_model)
+
+# test predictions accuracy
+full_prediction = predict(full_model, newdata = dd_test)
+confusionMatrix(full_prediction, dd_test$default_next_month)
+```
+
+
+```{r}
+# stepwise logistic regression
+step_model = train(default_next_month~., data = dd_train, method = "glmStepAIC", family = binomial)
+summary(step_model)
+
+# test prediction accuracy
+step_prediction = predict(step_model, newdata = dd_test)
+confusionMatrix(step_prediction, dd_test$default_next_month)
+```
+
+
+```{r}
+# Bayesian generalized logistic regression
+bayesian_model = train(default_next_month~., data = dd_train, method = "bayesglm", family = binomial)
+summary(bayesian_model)
+
+# test prediction accuracy
+bayesian_prediction = predict(bayesian_model, newdata = dd_test)
+confusionMatrix(bayesian_prediction, dd_test$default_next_month)
+
+```
+
+Compare the accuracy of the logistics regression models 
+```{r}
+# compare the 3 model
+results = resamples(list(full_model = full_model, 
+                         step_model = step_model,
+                         bayesian_model = bayesian_model))
+summary(results)
+
+# plot the results
+dotplot(results)
+
+# bayesian model has the best performance with a 0.8155 predict accuracy
+```
+
+Predict credit card default with desicion tree
+```{r}
+# splict 80% of the data into a training set
+# in_train = createDataPartition(y = dd$default_next_month, p =0.8, list = FALSE)
+# dd_train = dd[in_train, ]
+# dd_test = dd[-in_train, ]
+# then we save the training datasets into a new dataframe excluding the default_next_month
+training_set = select(dd_train, -default_next_month)
+
+# one tree model
+tree_model = train(y = dd_train$default_next_month, x = training_set, method = "rpart")
+summary(tree_model)
+tree_model$finalModel
+rpart.plot(tree_model$finalModel)
+
+# the tree model suggest that the payment status in the first two months prior are critical for identifying defaultors
+plot(varImp(tree_model))
+
+# predict
+tree_predictions = predict(tree_model, newdata = dd_test)
+
+# validate
+confusionMatrix(tree_predictions, dd_test$default_next_month)
+```
+
+```{r}
+# bootstrap aggregating
+# bagging works by constructing many decision trees on many different samples of traning data
+# then to classify, each individual tree gets a vote on whether a new observation from the test set is a defaultor or non-defaultor
+# the final classification is made by majority vote among all the trees
+bagged_model = train(y = dd_train$default_next_month, x = training_set, method = "treebag")
+plot(varImp(bagged_model))
+
+bagged_predictions = predict(bagged_model, dd_test)
+confusionMatrix(bagged_predictions, dd_test$default_next_month)
+```
+
+```{r}
+# random forest
+# it's a special type of bagging that goes through an additional re-sampling step.
+# random forest re-samples the features so that not all trees are built using the same set
+# because of this additional level of re-sampling, random forest is less prone to over-fitting
+# because it takes too long to fit the model to the whole training datasets, I will use Rborist package which is 
+# a high performance implementation of randomForest
+rf_model = train(y = dd_train$default_next_month, x = training_set, method = "Rborist", prox = TRUE, verbose = TRUE, nTree = 50)
+
+plot(rf_model)
+```
+
+```{r}
+# random forest predict
+rf_predictions = predict(rf_model, dd_test)
+confusionMatrix(rf_predictions, dd_test$default_next_month)
+
+```
+
+```{r}
+# decision tree models comparison
+result1 = resamples(list(tree = tree_model, bagged = bagged_model, randomforest = rf_model) )
+
+summary(result1)
+
+# plot the results
+dotplot(result1)
+
+# one tree model is my final model which has a predictive accuracy of 82.63%
+```
+
+
