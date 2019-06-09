@@ -46,17 +46,19 @@ I made hypotheses that cardholders who always paid off their statement balance w
 I built 6 machine learning models and measured their performances by predict accuracy. The final model is simple decision tree model which has the highest predict accuracy of 82.26%. 
 
 ## Logic Regression Models
+Accuracy:
 1.	Full Model: 0.8226
 2.	Stepwise Logistic Regression: 0.8143
 3.	Bayesian Model: 0.8155
 
 ## Decision Tree Models
+Accuracy:
 1.	One Tree Model: 0.8263
 2.	Bagging Model: 0.8135
 3.	Random Forest: 0.8183
 
 ## CONCLUSION AND RECOMMENDATIONS
-Credit card payment default can stem from various of factors.  Married men are high default risk groups.  The more the credit limit, the less the default risk. The final model I adopted, which is simple decision tree model, provide an interesting interpretation of key factors driving default. It suggests that if people paid bill in September, there are 89% chance they won’t default next month.  
+Credit card payment default can stem from various of factors.  Married men are high default risk groups.  The more the credit limit, the less the default risk. The final model I adopted, which is simple decision tree model, provides an interesting interpretation of key factors driving the default. It suggests that if people paid bill in September, there are 89% chance they won’t default next month. If they paid in both September and July, chances are 99% they will pay bills next month.
 
-The negative correlation of credit limit and default shows that the current credit scoring system is effective to certain extent but definitely not enough considering the default crisis. I suggest banks to investigate cardholders’ age, sex, marriage status, credit limit, payment history and reevaluate their weigh in credit approval and scoring system. They might need to build an effective credit card suspension system to cancel the accounts of certain cardholders obviously does not have the ability to pay off debt or keeps not paying on purpose. 
+The negative correlation of credit limit and default shows that the current credit scoring system is effective to certain extent but definitely not enough considering the default crisis. I suggest banks to investigate cardholders’ age, sex, marriage status, credit limit, payment history and reevaluate their weights in current credit approval and scoring system. They might need to build an effective credit card suspension system to cancel the accounts of certain cardholders obviously does not have the ability to pay off debt or keeps not paying on purpose. 
 
